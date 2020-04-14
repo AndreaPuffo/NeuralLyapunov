@@ -17,7 +17,6 @@ class Z3Verifier():
         self.x_z3s = z3_vars
         self.z3_timeout = 60
 
-
         assert (self.counterexample_n > 0)
 
 
@@ -51,10 +50,10 @@ class Z3Verifier():
 
     def add_domain_constraints(self, solver, V, Vdot):
         """
-        :param solver:
-        :param V:
-        :param Vdot:
-        :return:
+        :param solver: z3 solver
+        :param V: z3 expr
+        :param Vdot: z3 expr
+        :return: --
         """
         circle = np.sum([x * x for x in self.x_z3s])
         V_constr = V - self.margin * circle <= 0
@@ -80,23 +79,29 @@ class Z3Verifier():
 
     def compute_model(self, solver):
         """
-        :param solver:
-        :return:
+        :param solver: z3 solver
+        :return: tensor containing single ctx
         """
 
         model = solver.model()
-        print(model)
+        print('Counterexample Found: {}'.format(model))
         temp = []
         for x in self.x_z3s: # todo: x is a matrix, works w/ x[0,0] --> make it work w/ x
             try:
                 temp += [float(model[x[0,0]].as_fraction())]
-            except:
+            except:  # when z3 finds non-rational numbers, prints them w/ '?' at the end --> approx 10 decimals
                 temp += [float(model[x[0,0]].approx(10).as_fraction())]
 
         original_point = torch.tensor(temp)
         return original_point
 
+    # given one ctx, useful to sample around it to increase data set
+    # these points might *not* be real ctx, but probably close to invalidity condition
     def randomise_counterex(self, point):
+        """
+        :param point: tensor
+        :return: list of ctx
+        """
         C = []
         for i in range(20):
             random_point = point + 0.05 * torch.randn(len(point))

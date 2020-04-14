@@ -33,6 +33,7 @@ class Cegis():
         self.learner = NN(n_vars, *n_hidden_neurons, bias=False)
         self.verifier = Z3Verifier(self.n, self.inner, self.outer, self.margin, self.x)
 
+    # the cegis loop
     # todo: fix return, fix map(f, S)
     def solve(self):
         S = []
@@ -69,7 +70,6 @@ class Cegis():
 
             if self.max_cegis_iter == iters:
                 print('Out of Cegis loops')
-                return None, True
 
             if found:
                 print('Found a Lyapunov function, baby!')
@@ -78,15 +78,17 @@ class Cegis():
                 iters += 1
                 S, Sdot = self.add_ces_to_data(S, Sdot, ces)
 
-        return self.learner, False, iters
+        return self.learner, found, iters
 
 
     def add_ces_to_data(self, S, Sdot, ces):
         """
-        :param S:
-        :param Sdot:
-        :param ces:
+        :param S: torch tensor
+        :param Sdot: torch tensor
+        :param ces: list of ctx
         :return:
+                S: torch tensor, added new ctx
+                Sdot torch tensor, added  f(new_ctx)
         """
         S = torch.cat([S, torch.stack(ces)], dim=0)
         Sdot = torch.cat([Sdot, torch.stack(list(map(torch.tensor, map(self.f, ces))))], dim=0)

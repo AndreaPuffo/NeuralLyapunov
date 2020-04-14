@@ -72,11 +72,9 @@ class NN(nn.Module):
 
     def numerical_net(self, S, Sdot):
         """
-        :param net: LNN object
+        :param net: NN object
         :param S: tensor
         :param Sdot: tensor
-        :param switch: int, if switch==3 --> LNN diagonal
-        :param decimal_precision: int, wanted number of decimals from NN matrices
         :return: V, Vdot, circle: tensors
         """
         assert (len(S) == len(Sdot))
@@ -87,7 +85,15 @@ class NN(nn.Module):
 
         return V, Vdot, circle
 
+    # backprop algo
     def learn(self, optimizer, S, S_dot, margin):
+        """
+        :param optimizer: torch optimiser
+        :param S: tensor of data
+        :param S_dot: tensor contain f(data)
+        :param margin: performance threshold
+        :return: --
+        """
         assert (len(S) == len(S_dot))
 
         batch_size = len(S)
@@ -97,18 +103,18 @@ class NN(nn.Module):
             optimizer.zero_grad()
 
             V, Vdot, circle = self.numerical_net(S, S_dot)
-            acc_V_dot = 0.5 * ( sum(Vdot <= -margin).item() + sum(V >= margin).item() )
+            learn_accuracy = 0.5 * ( sum(Vdot <= -margin).item() + sum(V >= margin).item() )
 
             slope = 10 ** (self.orderOfMagnitude(max(abs(Vdot)).detach()))
             leaky_relu = torch.nn.LeakyReLU(1 / slope)
             loss = (leaky_relu(Vdot + margin * circle)).mean() + (leaky_relu(-V + margin * circle)).mean()
 
-            print(t, "- loss:", loss.item(), "- acc:", acc_V_dot * 100 / batch_size, '%')
+            print(t, "- loss:", loss.item(), "- acc:", learn_accuracy * 100 / batch_size, '%')
 
-            if acc_V_dot == batch_size:
+            if learn_accuracy == batch_size:
                 break
 
-            if acc_V_dot / batch_size > 0.99:
+            if learn_accuracy / batch_size > 0.99:
                 for k in range(batch_size):
                     if Vdot[k] > -margin:
                         print("Vdot" + str(S[k].tolist()) + " = " + str(Vdot[k].tolist()))
