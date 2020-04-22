@@ -1,0 +1,49 @@
+\documentclass[]{article}
+\usepackage{amsmath}
+
+\begin{document}
+
+Lyapunov Functions
+
+\begin{itemize}
+\item Lorentz system, with $r \in (0,1)$, $\sigma, b > 0$
+$$
+\left\{
+\begin{matrix}
+\dot{x} = \sigma (y - x) \\
+\dot{y} = r x - y - xz\\
+\dot{z} = xy - bz
+\end{matrix}
+\right.
+$$
+\item Pendulum (linearised)
+$$
+\left\{
+\begin{matrix}
+\dot{x} = y \\
+\dot{y} = -\beta \sin x
+\end{matrix}
+\right.
+$$
+Rewrite $\sin x$ as $\sin x = - x + x^3/3 - x^5/5$
+\item Linear harmonic oscillator, $K, M, B > 0$
+$$
+\left\{
+\begin{matrix}
+\dot{x} = y \\
+\dot{y} = -K/M x - B/M y
+\end{matrix}
+\right.
+$$
+\item Pendulum with friction, $a, b > 0$
+$$
+\left\{
+\begin{matrix}
+\dot{x} = y \\
+\dot{y} = - a  \sin x - b y
+\end{matrix}
+\right.
+$$
+\end{itemize}
+
+\end{document}
