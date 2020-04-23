@@ -5,20 +5,29 @@ import numpy as np
 from src.utils import get_symbolic_formula, print_section
 from z3 import *
 import timeit
+from src.simplified_z3_learner import SimpleZ3Learner
+from enum import Enum
+
+
+class LearnerType(Enum):
+    NN = 0
+    Z3 = 1
 
 
 class Cegis():
-    def __init__(self, n_vars, f, inner_radius, outer_radius, margin, n_hidden_neurons):
+    # todo: set params for NN and avoid useless definitions
+    def __init__(self, n_vars, f, learner_type, inner_radius, outer_radius, margin, n_hidden_neurons):
         self.n = n_vars
         self.f = f
+        self.learner_type = learner_type
         self.inner = inner_radius
         self.outer = outer_radius
         self.margin = margin
         self.h = n_hidden_neurons
-        self.max_cegis_iter = 50
+        self.max_cegis_iter = 5
 
         # batch init
-        self.batch_size = 500
+        self.batch_size = 50
         self.learning_rate = .1
 
         self.x = [Real('x%d' % i) for i in range(n_vars)]
@@ -30,7 +39,10 @@ class Cegis():
         self.x = np.matrix(self.x).T
         self.xdot = np.matrix(self.xdot).T
 
-        self.learner = NN(n_vars, *n_hidden_neurons, bias=False)
+        if learner_type == LearnerType.NN:
+            self.learner = NN(n_vars, *n_hidden_neurons, bias=False)
+        else:
+            self.learner = SimpleZ3Learner(self.n)
         self.verifier = Z3Verifier(self.n, self.inner, self.outer, self.margin, self.x)
 
     # the cegis loop
@@ -45,23 +57,28 @@ class Cegis():
 
         S, Sdot = torch.stack(S), torch.stack(Sdot)
 
-        self.optimizer = torch.optim.AdamW(self.learner.parameters(), lr=self.learning_rate)
+        if self.learner_type == LearnerType.NN:
+            self.optimizer = torch.optim.AdamW(self.learner.parameters(), lr=self.learning_rate)
 
         stats = {}
         # the CEGIS loop
         iters = 0
-        stop = False
+        stop, found = False, False
         start = timeit.default_timer()
         #
         while not stop:
 
             print_section('Learning', iters)
-            learned = self.learner.learn(self.optimizer, S, Sdot, self.margin)
+            if self.learner_type == LearnerType.NN:
+                learned = self.learner.learn(self.optimizer, S, Sdot, self.margin)
+                V, Vdot = get_symbolic_formula(self.learner, self.x, self.xdot)
+                V, Vdot = z3.simplify(V), z3.simplify(Vdot)
+            else:
+                P = self.learner.learn(S.numpy().T, Sdot.numpy().T)
+                # might modify get_symbolic_formula to work with x*P*x Lyapunov candidate...
+                V, Vdot = self.learner.get_poly_formula(self.x, self.xdot, P)
 
             print_section('Candidate', iters)
-            V, Vdot = get_symbolic_formula(self.learner, self.x, self.xdot)
-            V, Vdot = z3.simplify(V), z3.simplify(Vdot)
-
             print(f'V: {V}')
             print(f'Vdot: {Vdot}')
 
@@ -70,6 +87,7 @@ class Cegis():
 
             if self.max_cegis_iter == iters:
                 print('Out of Cegis loops')
+                stop = True
 
             if found:
                 print('Found a Lyapunov function, baby!')

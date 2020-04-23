@@ -1,6 +1,7 @@
 from src.cegis import Cegis
 import torch
 import timeit
+from src.cegis import LearnerType
 
 
 def benchmark_3(v):
@@ -22,8 +23,10 @@ outer_radius = 10
 inner_radius = 0
 margin = 0
 
+learner_type = LearnerType.Z3
+
 start = timeit.default_timer()
-c = Cegis(n_vars, f, inner_radius, outer_radius, margin, n_hidden_neurons)
+c = Cegis(n_vars, f, learner_type, inner_radius, outer_radius, margin, n_hidden_neurons)
 c.solve()
 stop = timeit.default_timer()
 print('Elapsed Time: {}'.format(stop-start))
