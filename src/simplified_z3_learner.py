@@ -1,4 +1,3 @@
-from __future__ import division
 from z3 import *
 import timeit
 import numpy as np

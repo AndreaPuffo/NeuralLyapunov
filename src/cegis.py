@@ -1,17 +1,19 @@
 import torch
-from src.net import NN
-from src.verifier import *
 import numpy as np
-from src.utils import get_symbolic_formula, print_section
 from z3 import *
 import timeit
-from src.simplified_z3_learner import SimpleZ3Learner
 from enum import Enum
 
+from src.verifier import *
+from src.utils import get_symbolic_formula, print_section
+from src.simplified_z3_learner import SimpleZ3Learner
+from src.net import NN
+from src.scipy_learner import ScipyLearner
 
 class LearnerType(Enum):
     NN = 0
     Z3 = 1
+    SCIPY = 2
 
 
 class Cegis():
@@ -41,8 +43,13 @@ class Cegis():
 
         if learner_type == LearnerType.NN:
             self.learner = NN(n_vars, *n_hidden_neurons, bias=False)
-        else:
+        elif learner_type == LearnerType.Z3:
             self.learner = SimpleZ3Learner(self.n)
+        elif learner_type == LearnerType.SCIPY:
+            self.learner = ScipyLearner(self.n)
+        else:
+            print('M8 I aint got this learner')
+
         self.verifier = Z3Verifier(self.n, self.inner, self.outer, self.margin, self.x)
 
     # the cegis loop
