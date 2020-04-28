@@ -155,3 +155,62 @@ def print_section(word, k):
     print("=" * 80)
     print(' ', word, ' ', k)
     print("=" * 80)
+
+
+def compute_equilibria(fx):
+    """
+    :param fx: list of sympy equations
+    :return: list of equilibrium points
+    """
+    sol = sp.solve(fx)
+    return sol
+
+
+# removes imaginary solutions
+def check_real_solutions(sols, x):
+    """
+    :param sols: list of dictories
+    :param x: list of variables
+    :return: list of dict w real solutions
+    """
+    good_sols = []
+    for sol in sols:
+        is_good_sol = True
+        for index in range(len(sol)):
+            if sp.im(sol[x[index]]) != 0:
+                is_good_sol = False
+                break
+        if is_good_sol:
+            good_sols.append(sol)
+    return good_sols
+
+
+def compute_distance(point, equilibrium):
+    """
+    :param point: np.array
+    :param equilibrium: np.array
+    :return: int = squared distance, r^2
+    """
+    return np.sum(np.power(point - equilibrium, 2))
+
+
+def compute_bounds(n_vars, f, equilibrium):
+    """
+    :param n_vars: int, number of variables
+    :param f: function
+    :param equilibrium: np array
+    :return: int, minimum distance from equilibrium to solution points of f
+    """
+    x0 = equilibrium
+    # real=True should consider only real sols
+    x_sp = [sp.Symbol('x%d' % i, real=True) for i in range(n_vars)]
+    sols = compute_equilibria(f(x_sp))
+    # sols = check_real_solutions(sols, x_sp) # removes imaginary solutions
+    min_dist = np.inf
+    for index in range(len(sols)):
+        point = np.array(list(sols[index].values()))  # extract values from dict
+        if not (point == x0).all():
+            dist = compute_distance(point, x0)
+            if dist < min_dist:
+                min_dist = dist
+    return min_dist
