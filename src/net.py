@@ -25,7 +25,9 @@ class NN(nn.Module):
 
         self.n_inp = n_inp
         n_prev = n_inp
+        self.equilibrium = torch.zeros((1, self.n_inp)).double()
 
+        self._is_there_bias = bias
         self.layers = []
         k = 1
         for n_hid in args:
@@ -64,11 +66,11 @@ class NN(nn.Module):
             jacobian = torch.matmul(layer.weight, jacobian)
             jacobian = torch.matmul(torch.diag_embed(activation_der(z)), jacobian)
 
-        y = torch.matmul(y, self.layers[-1].weight.T)
+        numerical_v = torch.matmul(y, self.layers[-1].weight.T)
         jacobian = torch.matmul(self.layers[-1].weight, jacobian)
+        numerical_vdot = torch.sum(torch.mul(jacobian[:, 0, :], xdot), dim=1).double()
 
-        return y, torch.sum(torch.mul(jacobian[:, 0, :], xdot), dim=1).double()
-
+        return numerical_v, numerical_vdot, y
 
     def numerical_net(self, S, Sdot):
         """
@@ -79,7 +81,7 @@ class NN(nn.Module):
         """
         assert (len(S) == len(Sdot))
 
-        V, Vdot = self.forward_tensors(S, Sdot)
+        V, Vdot, _ = self.forward_tensors(S, Sdot)
         # circle = x0*x0 + ... + xN*xN
         circle = torch.pow(S, 2).sum(dim=1)
 
@@ -121,6 +123,26 @@ class NN(nn.Module):
 
             loss.backward()
             optimizer.step()
+
+            if self._is_there_bias:
+                self.weights_projection()
+
+    def weights_projection(self):
+        # bias_vector = self.layers[0].bias.double()
+        # constraints matrix
+        _, _, c_mat = self.forward_tensors(self.equilibrium, self.equilibrium)
+        # compute projection matrix
+        if (c_mat == 0).all():
+            projection_mat = torch.eye(self.layers[-1].weight.shape[1])
+        else:
+            projection_mat = torch.eye(self.layers[-1].weight.shape[1]).double() \
+                                  - c_mat.T @ torch.inverse(c_mat @ c_mat.T) @ c_mat
+        # make the projection w/o gradient operations with torch.no_grad
+        with torch.no_grad():
+            self.layers[-1].weight.data = self.layers[-1].weight @ projection_mat
+            x0 = torch.zeros((1, self.n_inp)).double()
+            v0, _, _ = self.forward_tensors(x0, x0)
+            print('Zero in zero? V(0) = {}'.format(v0.data.item()))
 
     # todo: mv to utils
     def orderOfMagnitude(self, number):

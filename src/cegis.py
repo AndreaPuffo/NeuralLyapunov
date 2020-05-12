@@ -42,7 +42,7 @@ class Cegis():
         self.xdot = np.matrix(self.xdot).T
 
         if learner_type == LearnerType.NN:
-            self.learner = NN(n_vars, *n_hidden_neurons, bias=False)
+            self.learner = NN(n_vars, *n_hidden_neurons, bias=True)
         elif learner_type == LearnerType.Z3:
             self.learner = SimpleZ3Learner(self.n)
         elif learner_type == LearnerType.SCIPY:

@@ -81,21 +81,47 @@ def to_numpy(x):
     return np.float(sp.Rational(x))
 
 
-
-def get_symbolic_formula(net, x, xdot):
+def get_symbolic_formula(net, x, xdot, equilibrium=None):
     """
     :param net:
     :param x:
     :param xdot:
     :return:
     """
+    rounding = 3
+    z, jacobian = network_until_last_layer(net, x, rounding)
+
+    if equilibrium is None:
+        equilibrium = np.zeros((net.n_inp, 1))
+
+    projected_last_layer = weights_projection(net, equilibrium, rounding, z)
+    z = np.dot(projected_last_layer, z)
+    # this now contains the gradient \nabla V
+    jacobian = np.dot(projected_last_layer, jacobian)
+
+    Vdot = np.dot(jacobian, xdot)
+    assert z.shape == (1, 1) and Vdot.shape == (1, 1)
+    V = z[0, 0]
+    Vdot = Vdot[0, 0]
+    # val_in_zero, _ = z3_replacements(z3.simplify(V), V, x, equilibrium)
+    # assert z3.simplify(val_in_zero) == 0
+    return V, Vdot
+
+
+def network_until_last_layer(net, x, rounding):
+    """
+    :param net:
+    :param x:
+    :param equilibrium:
+    :return:
+    """
     z = x
     jacobian = np.eye(net.n_inp, net.n_inp)
 
     for layer in net.layers[:-1]:
-        w = layer.weight.data.numpy()
+        w = np.round(layer.weight.data.numpy(), rounding)
         if layer.bias is not None:
-            b = layer.bias.data.numpy()[:, None]
+            b = np.round(layer.bias.data.numpy(), rounding)[:, None]
         else:
             b = 0
         zhat = np.dot(w, z) + b
@@ -104,17 +130,31 @@ def get_symbolic_formula(net, x, xdot):
         jacobian = np.dot(w, jacobian)
         jacobian = np.dot(np.diagflat(activation_der(zhat)), jacobian)
 
+    return z, jacobian
 
-    z = np.dot(net.layers[-1].weight.data.numpy(), z)
-    jacobian = np.matmul(net.layers[-1].weight.data.numpy(),
-                           jacobian)  # this now contains the gradient \nabla V
 
-    Vdot = np.dot(jacobian, xdot)
-    assert z.shape == (1, 1) and Vdot.shape == (1, 1)
-    V = z[0, 0]
-    Vdot = Vdot[0, 0]
-    return V, Vdot
+def weights_projection(net, equilibrium, rounding, z):
+    """
+    :param net:
+    :param equilibrium:
+    :return:
+    """
+    tol = 10 ** (-rounding)
+    # constraints matrix
+    c_mat = network_until_last_layer(net, equilibrium, rounding)[0]
+    c_mat = sp.Matrix(sp.nsimplify(sp.Matrix(c_mat), rational=True).T)
+    # compute projection matrix
+    if c_mat == sp.zeros(c_mat.shape[0], c_mat.shape[1]):
+        projection_mat = sp.eye(net.layers[-1].weight.shape[1])
+    else:
+        projection_mat = sp.eye(net.layers[-1].weight.shape[1]) \
+                         - c_mat.T * (c_mat @ c_mat.T)**(-1) @ c_mat
+    # make the projection w/o gradient operations with torch.no_grad
+    last_layer = np.round(net.layers[-1].weight.data.numpy(), rounding)
+    last_layer = sp.nsimplify(sp.Matrix(last_layer), rational=True, tolerance=tol)
+    new_last_layer = sp.Matrix(last_layer @ projection_mat)
 
+    return new_last_layer
 
 
 def sympy_replacements(expr, xs, S):
@@ -144,7 +184,7 @@ def z3_replacements(V, Vdot, z3_vars, ctx):
     """
     replacements = []
     for i in range(len(z3_vars)):
-        replacements += [(z3_vars[i], z3.RealVal(ctx[i]))]
+        replacements += [(z3_vars[i, 0], z3.RealVal(ctx[i, 0]))]
     V_replace = z3.substitute(V, replacements)
     Vdot_replace = z3.substitute(Vdot, replacements)
 
