@@ -4,18 +4,18 @@ import numpy as np
 
 
 def activation(x):
-    # h = int(len(x)/2)
-    # x1, x2 = x[:h], x[h:]
-    # return torch.cat([x1, torch.pow(x2, 2)]) # torch.pow(x, 2)
-    return torch.pow(x, 2)
+    h = int(x.shape[1]/2)
+    x1, x2 = x[:, :h], x[:, h:]
+    return torch.cat([x1, torch.pow(x2, 2)], dim=1) # torch.pow(x, 2)
+    # return torch.pow(x, 2)
     # return x*torch.relu(x)
 
 
 def activation_der(x):
-    # h = int(len(x) / 2)
-    # x1, x2 = x[:h], x[h:]
-    # return torch.cat([torch.ones(1,h)[0], 2*x2])  # torch.ones(1,h)[0] because of dimension issues...
-    return 2 * x
+    h = int(x.shape[1] / 2)
+    x1, x2 = x[:, :h], x[:, h:]
+    return torch.cat((torch.ones(x1.shape).double(), 2*x2), dim=1)
+    # return 2 * x
     # return 2*torch.relu(x)
 
 
@@ -70,7 +70,7 @@ class NN(nn.Module):
         jacobian = torch.matmul(self.layers[-1].weight, jacobian)
         numerical_vdot = torch.sum(torch.mul(jacobian[:, 0, :], xdot), dim=1).double()
 
-        return numerical_v, numerical_vdot, y
+        return numerical_v[:, 0], numerical_vdot, y
 
     def numerical_net(self, S, Sdot):
         """
@@ -141,8 +141,8 @@ class NN(nn.Module):
         with torch.no_grad():
             self.layers[-1].weight.data = self.layers[-1].weight @ projection_mat
             x0 = torch.zeros((1, self.n_inp)).double()
-            v0, _, _ = self.forward_tensors(x0, x0)
-            print('Zero in zero? V(0) = {}'.format(v0.data.item()))
+            # v0, _, _ = self.forward_tensors(x0, x0)
+            # print('Zero in zero? V(0) = {}'.format(v0.data.item()))
 
     # todo: mv to utils
     def orderOfMagnitude(self, number):

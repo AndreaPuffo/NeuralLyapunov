@@ -25,7 +25,7 @@ outer_radius = 10
 inner_radius = 0
 margin = 0
 
-learner_type = LearnerType.SCIPY
+learner_type = LearnerType.NN
 
 start = timeit.default_timer()
 c = Cegis(n_vars, f, learner_type, inner_radius, outer_radius, margin, n_hidden_neurons)

@@ -29,7 +29,7 @@ class Cegis():
         self.max_cegis_iter = 5
 
         # batch init
-        self.batch_size = 50
+        self.batch_size = 500
         self.learning_rate = .1
 
         self.x = [Real('x%d' % i) for i in range(n_vars)]
@@ -42,7 +42,7 @@ class Cegis():
         self.xdot = np.matrix(self.xdot).T
 
         if learner_type == LearnerType.NN:
-            self.learner = NN(n_vars, *n_hidden_neurons, bias=True)
+            self.learner = NN(n_vars, *n_hidden_neurons, bias=False)
         elif learner_type == LearnerType.Z3:
             self.learner = SimpleZ3Learner(self.n)
         elif learner_type == LearnerType.SCIPY:
@@ -102,9 +102,11 @@ class Cegis():
             else:
                 iters += 1
                 S, Sdot = self.add_ces_to_data(S, Sdot, ces)
+                # the original ctx is in the last row of ces
+                trajectory = self.trajectoriser(ces[-1])
+                S, Sdot = self.add_ces_to_data(S, Sdot, trajectory)
 
         return self.learner, found, iters
-
 
     def add_ces_to_data(self, S, Sdot, ces):
         """
@@ -118,3 +120,9 @@ class Cegis():
         S = torch.cat([S, torch.stack(ces)], dim=0)
         Sdot = torch.cat([Sdot, torch.stack(list(map(torch.tensor, map(self.f, ces))))], dim=0)
         return S, Sdot
+
+    def trajectoriser(self, point):
+        point.requires_grad = True
+        trajectory = compute_trajectory(self.learner, point, self.f)
+
+        return trajectory

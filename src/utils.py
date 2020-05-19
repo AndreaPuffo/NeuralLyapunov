@@ -5,18 +5,22 @@ import torch
 
 
 def activation(x):
-    # h = int(len(x) / 2)
-    # x1, x2 = x[:h], x[h:]
-    # return np.vstack((x1, np.power(x2, 2)))
-    return np.power(x, 2)
-    # return x*np.maximum(x,0)
+    """
+    :param x: tensor, one dimensional
+    :return: tensor,
+    """
+    h = int(x.shape[0]/2)
+    x1, x2 = x[:h], x[h:]
+    return torch.cat([x1, torch.pow(x2, 2)]) # torch.pow(x, 2)
+    # return torch.pow(x, 2)
+    # return x*torch.relu(x)
 
 
 def activation_z3(x):
-    # h = int(len(x) / 2)
-    # x1, x2 = x[:h], x[h:]
-    # return np.vstack((x1, np.power(x2, 2)))
-    return np.power(x, 2)
+    h = int(x.shape[0] / 2)
+    x1, x2 = x[:h], x[h:]
+    return np.vstack([x1, np.power(x2, 2)])  # torch.pow(x, 2)
+    # return np.power(x, 2)
     # original_x = x
     # for idx in range(len(x)):
     #     x[idx, 0] = relu_z3(x[idx, 0])
@@ -24,24 +28,24 @@ def activation_z3(x):
 
 
 def activation_der(x):
-    # h = int(len(x) / 2)
-    # x1, x2 = x[:h], x[h:]
-    # return np.vstack((np.ones((h, 1)), 2*x2)) # NOTA: the first h elements DO NOT have variables in them
-    return 2 * x
-    # return 2*np.maximum(x,0)
+    h = int(x.shape[0] / 2)
+    x1, x2 = x[:h], x[h:]
+    return torch.cat((torch.ones(x1.shape).double(), 2*x2))
+    # return 2 * x
+    # return 2*torch.relu(x)
 
 
 def activation_der_z3(x):
-    for idx in range(len(x)):
-        x[idx, 0] = relu_z3(x[idx, 0])
-    return 2 * x
+    h = int(len(x) / 2)
+    x1, x2 = x[:h], x[h:]
+    return np.vstack((np.ones((h, 1)), 2*x2)) # NOTA: the first h elements DO NOT have variables in them
+    # return 2 * x
+    # return 2*np.maximum(x,0)
+
 
 
 def relu_z3(x):
     return If(x > 0, x, 0)
-
-
-
 
 
 def extract_val_from_z3(model, vars, useSympy):
@@ -128,7 +132,7 @@ def network_until_last_layer(net, x, rounding):
         z = activation_z3(zhat)
         # Vdot
         jacobian = np.dot(w, jacobian)
-        jacobian = np.dot(np.diagflat(activation_der(zhat)), jacobian)
+        jacobian = np.dot(np.diagflat(activation_der_z3(zhat)), jacobian)
 
     return z, jacobian
 
@@ -254,3 +258,99 @@ def compute_bounds(n_vars, f, equilibrium):
             if dist < min_dist:
                 min_dist = dist
     return min_dist
+
+
+# computes the gradient of V, Vdot in point
+# computes a 20-step trajectory (20 is arbitrary) starting from point
+# towards increase: + gamma*grad
+# towards decrease: - gamma*grad
+def compute_trajectory(net, point, f):
+    """
+    :param net: NN object
+    :param point: tensor
+    :return: list of tensors
+    """
+    # set some parameters
+    gamma = 0.01  # step-size factor
+    max_iters = 20
+    # fixing possible dimensionality issues
+    trajectory = [point]
+    num_vdot_value_old = 0
+    # gradient computation
+    for gradient_loop in range(max_iters):
+        # compute gradient of Vdot
+        gradient, num_vdot_value = compute_Vdot_grad(net, point, f)
+        # set break conditions
+        if abs(num_vdot_value_old - num_vdot_value) < 1e-3 or num_vdot_value > 1e6 or (gradient > 1e6).any():
+            break
+        else:
+            num_vdot_value_old = num_vdot_value
+        # "detach" and "requires_grad" make the new point "forget" about previous operations
+        point = point.clone().detach() + gamma * gradient.clone().detach()
+        point.requires_grad = True
+        trajectory.append(point)
+    # just checking if gradient is numerically unstable
+    assert not torch.isnan(torch.stack(trajectory)).any()
+    return trajectory
+
+
+def compute_V_grad(net, point):
+    """
+    :param net:
+    :param point:
+    :return:
+    """
+    num_v = forward_V(net, point)[0]
+    num_v.backward()
+    grad_v = point.grad
+    return grad_v, num_v
+
+
+def compute_Vdot_grad(net, point, f):
+    """
+    :param net:
+    :param point:
+    :return:
+    """
+    num_v_dot = forward_Vdot(net, point, f)
+    num_v_dot.backward()
+    grad_v_dot = point.grad
+    assert grad_v_dot is not None
+    return grad_v_dot, num_v_dot
+
+
+def forward_V(net, x):
+    """
+    :param x: tensor of data points
+    :param xdot: tensor of data points
+    :return:
+            V: tensor, evaluation of x in net
+    """
+    y = x.double()
+    for layer in net.layers[:-1]:
+        z = layer(y)
+        y = activation(z)
+    y = torch.matmul(y, net.layers[-1].weight.T)
+    return y
+
+
+def forward_Vdot(net, x, f):
+    """
+    :param x: tensor of data points
+    :param xdot: tensor of data points
+    :return:
+            Vdot: tensor, evaluation of x in derivative net
+    """
+    y = x.double()
+    xdot = torch.stack(f(x))
+    jacobian = torch.diag_embed(torch.ones(x.shape[0], net.n_inp)).double()
+
+    for layer in net.layers[:-1]:
+        z = layer(y)
+        y = activation(z)
+        jacobian = torch.matmul(layer.weight, jacobian)
+        jacobian = torch.matmul(torch.diag_embed(activation_der(z)), jacobian)
+
+    jacobian = torch.matmul(net.layers[-1].weight, jacobian)
+
+    return torch.sum(torch.mul(jacobian[:, 0, :], xdot), dim=1).double()[0]
