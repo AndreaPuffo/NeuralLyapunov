@@ -2,7 +2,7 @@ import numpy as np
 import sympy as sp
 from z3 import *
 import torch
-
+from src.sympy_converter import sympy_converter
 
 def activation(x):
     """
@@ -18,8 +18,9 @@ def activation(x):
 
 def activation_z3(x):
     h = int(x.shape[0] / 2)
-    x1, x2 = x[:h], x[h:]
-    return np.vstack([x1, np.power(x2, 2)])  # torch.pow(x, 2)
+    x1, x2 = x[:h, :], x[h:, :]
+    # return sp.Matrix.vstack([x1, sp.power(x2, 2)])
+    return np.vstack([x1, np.power(x2,2)])
     # return np.power(x, 2)
     # original_x = x
     # for idx in range(len(x)):
@@ -36,9 +37,9 @@ def activation_der(x):
 
 
 def activation_der_z3(x):
-    h = int(len(x) / 2)
-    x1, x2 = x[:h], x[h:]
-    return np.vstack((np.ones((h, 1)), 2*x2)) # NOTA: the first h elements DO NOT have variables in them
+    h = int(x.shape[0] / 2)
+    x1, x2 = x[:h, :], x[h:, :]
+    return np.vstack((sp.ones(h, 1), 2*x2))
     # return 2 * x
     # return 2*np.maximum(x,0)
 
@@ -85,31 +86,40 @@ def to_numpy(x):
     return np.float(sp.Rational(x))
 
 
-def get_symbolic_formula(net, x, xdot, equilibrium=None):
+def get_symbolic_formula(net, x, xdot, equilibrium=None, rounding=3):
     """
     :param net:
     :param x:
     :param xdot:
     :return:
     """
-    rounding = 3
-    z, jacobian = network_until_last_layer(net, x, rounding)
+    x_sympy = [sp.Symbol('x%d' % i) for i in range(x.shape[0])]
+    # x = sp.Matrix(x_sympy)
+    z, jacobian = network_until_last_layer(net, sp.Matrix(x_sympy), rounding)
 
     if equilibrium is None:
         equilibrium = np.zeros((net.n_inp, 1))
 
     projected_last_layer = weights_projection(net, equilibrium, rounding, z)
-    z = np.dot(projected_last_layer, z)
+    z = projected_last_layer @ z
     # this now contains the gradient \nabla V
-    jacobian = np.dot(projected_last_layer, jacobian)
+    jacobian = projected_last_layer @ jacobian
 
-    Vdot = np.dot(jacobian, xdot)
+    Vdot = jacobian @ sp.Matrix(xdot)
     assert z.shape == (1, 1) and Vdot.shape == (1, 1)
     V = z[0, 0]
     Vdot = Vdot[0, 0]
-    # val_in_zero, _ = z3_replacements(z3.simplify(V), V, x, equilibrium)
-    # assert z3.simplify(val_in_zero) == 0
-    return V, Vdot
+
+    val_in_zero = sympy_replacements(V, sp.Matrix(x_sympy), equilibrium)
+    assert val_in_zero == 0
+
+    _, __, V_z3 = sympy_converter(sp.simplify(V))
+    _, __, Vdot_z3 = sympy_converter(sp.simplify(Vdot))
+
+    val_in_zero = z3_replacements(V_z3, x, equilibrium)
+    assert val_in_zero == 0
+
+    return V_z3, Vdot_z3
 
 
 def network_until_last_layer(net, x, rounding):
@@ -122,17 +132,28 @@ def network_until_last_layer(net, x, rounding):
     z = x
     jacobian = np.eye(net.n_inp, net.n_inp)
 
-    for layer in net.layers[:-1]:
-        w = np.round(layer.weight.data.numpy(), rounding)
-        if layer.bias is not None:
-            b = np.round(layer.bias.data.numpy(), rounding)[:, None]
-        else:
-            b = 0
-        zhat = np.dot(w, z) + b
+    for idx, layer in enumerate(net.layers[:-1]):
+        if rounding < 0:
+            w = sp.Matrix(layer.weight.data.numpy())
+            if layer.bias is not None:
+                b = sp.Matrix(layer.bias.data.numpy()[:, None])
+            else:
+                b = sp.zeros(layer.out_features, 1)
+        elif rounding > 0:
+            w = sp.Matrix(np.round(layer.weight.data.numpy(), rounding))
+            if layer.bias is not None:
+                b = sp.Matrix(np.round(layer.bias.data.numpy(), rounding)[:, None])
+            else:
+                b = sp.zeros(layer.out_features, 1)
+        #
+        w = sp.Matrix(sp.nsimplify(w, rational=True))
+        b = sp.Matrix(sp.nsimplify(b, rational=True))
+
+        zhat = w @ z + b
         z = activation_z3(zhat)
         # Vdot
-        jacobian = np.dot(w, jacobian)
-        jacobian = np.dot(np.diagflat(activation_der_z3(zhat)), jacobian)
+        jacobian = w @ jacobian
+        jacobian = np.diagflat(activation_der_z3(zhat)) @ jacobian
 
     return z, jacobian
 
@@ -154,7 +175,10 @@ def weights_projection(net, equilibrium, rounding, z):
         projection_mat = sp.eye(net.layers[-1].weight.shape[1]) \
                          - c_mat.T * (c_mat @ c_mat.T)**(-1) @ c_mat
     # make the projection w/o gradient operations with torch.no_grad
-    last_layer = np.round(net.layers[-1].weight.data.numpy(), rounding)
+    if rounding > 0:
+        last_layer = np.round(net.layers[-1].weight.data.numpy(), rounding)
+    else:
+        last_layer = net.layers[-1].weight.data.numpy()
     last_layer = sp.nsimplify(sp.Matrix(last_layer), rational=True, tolerance=tol)
     new_last_layer = sp.Matrix(last_layer @ projection_mat)
 
@@ -168,31 +192,31 @@ def sympy_replacements(expr, xs, S):
     :param S: list of tensors, batch numerical values
     :return: sum of expr.subs for all elements of S
     """
-    total = []
-    for idx in range(len(S)):
-        numerical_val = S[idx].data.numpy()
-        replacements = []
-        for i in range(len(xs)):
-            replacements += [(xs[i, 0], numerical_val[i])]
-        total += [expr.subs(replacements)]
-    return torch.tensor(total, dtype=torch.double, requires_grad=True)
+    if isinstance(S, torch.Tensor):
+        numerical_val = S.data.numpy()
+    else:
+        numerical_val = S
+    replacements = []
+    for i in range(len(xs)):
+        replacements += [(xs[i, 0], numerical_val[i])]
+    value = expr.subs(replacements)
+
+    return value
 
 
-def z3_replacements(V, Vdot, z3_vars, ctx):
+def z3_replacements(expr, z3_vars, ctx):
     """
-    :param V: z3 expr
-    :param Vdot: z3 expr
-    :param z3_vars: z3 vars
-    :param ctx: list of numerical values
+    :param expr: z3 expr
+    :param z3_vars: z3 vars, matrix
+    :param ctx: matrix of numerical values
     :return: value of V, Vdot in ctx
     """
     replacements = []
     for i in range(len(z3_vars)):
         replacements += [(z3_vars[i, 0], z3.RealVal(ctx[i, 0]))]
-    V_replace = z3.substitute(V, replacements)
-    Vdot_replace = z3.substitute(Vdot, replacements)
+    replaced = z3.substitute(expr, replacements)
 
-    return V_replace, Vdot_replace
+    return z3.simplify(replaced)
 
 
 def print_section(word, k):

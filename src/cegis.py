@@ -42,7 +42,7 @@ class Cegis():
         self.xdot = np.matrix(self.xdot).T
 
         if learner_type == LearnerType.NN:
-            self.learner = NN(n_vars, *n_hidden_neurons, bias=False)
+            self.learner = NN(n_vars, *n_hidden_neurons, bias=True)
         elif learner_type == LearnerType.Z3:
             self.learner = SimpleZ3Learner(self.n)
         elif learner_type == LearnerType.SCIPY:
@@ -78,7 +78,9 @@ class Cegis():
             print_section('Learning', iters)
             if self.learner_type == LearnerType.NN:
                 learned = self.learner.learn(self.optimizer, S, Sdot, self.margin)
-                V, Vdot = get_symbolic_formula(self.learner, self.x, self.xdot)
+
+                # to disable rounded numbers, set rounding=-1
+                V, Vdot = get_symbolic_formula(self.learner, self.x, self.xdot, rounding=3)
                 V, Vdot = z3.simplify(V), z3.simplify(Vdot)
             else:
                 P = self.learner.learn(S.numpy().T, Sdot.numpy().T)
