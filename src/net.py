@@ -1,32 +1,20 @@
 import torch
 import torch.nn as nn
 import numpy as np
+from src.activations import ActivationType, activation, activation_der
+from src.utils import Timer, timer
 
-
-def activation(x):
-    h = int(x.shape[1]/2)
-    x1, x2 = x[:, :h], x[:, h:]
-    return torch.cat([x1, torch.pow(x2, 2)], dim=1) # torch.pow(x, 2)
-    # return torch.pow(x, 2)
-    # return x*torch.relu(x)
-
-
-def activation_der(x):
-    h = int(x.shape[1] / 2)
-    x1, x2 = x[:, :h], x[:, h:]
-    return torch.cat((torch.ones(x1.shape).double(), 2*x2), dim=1)
-    # return 2 * x
-    # return 2*torch.relu(x)
+T = Timer()
 
 
 class NN(nn.Module):
-    def __init__(self, n_inp, *args, bias=False):
+    def __init__(self, n_inp, *args, bias=False, activate=ActivationType.LIN_SQUARE):
         super(NN, self).__init__()
 
         self.n_inp = n_inp
         n_prev = n_inp
         self.equilibrium = torch.zeros((1, self.n_inp)).double()
-
+        self.acts = activate
         self._is_there_bias = bias
         self.layers = []
         k = 1
@@ -59,12 +47,12 @@ class NN(nn.Module):
         y = x.double()
         jacobian = torch.diag_embed(torch.ones(x.shape[0], self.n_inp)).double()
 
-        for layer in self.layers[:-1]:
+        for idx, layer in enumerate(self.layers[:-1]):
             z = layer(y)
-            y = activation(z)
+            y = activation(self.acts[idx], z)
 
             jacobian = torch.matmul(layer.weight, jacobian)
-            jacobian = torch.matmul(torch.diag_embed(activation_der(z)), jacobian)
+            jacobian = torch.matmul(torch.diag_embed(activation_der(self.acts[idx], z)), jacobian)
 
         numerical_v = torch.matmul(y, self.layers[-1].weight.T)
         jacobian = torch.matmul(self.layers[-1].weight, jacobian)
@@ -88,6 +76,7 @@ class NN(nn.Module):
         return V, Vdot, circle
 
     # backprop algo
+    @timer(T)
     def learn(self, optimizer, S, S_dot, margin):
         """
         :param optimizer: torch optimiser
@@ -111,15 +100,11 @@ class NN(nn.Module):
             leaky_relu = torch.nn.LeakyReLU(1 / slope)
             loss = (leaky_relu(Vdot + margin * circle)).mean() + (leaky_relu(-V + margin * circle)).mean()
 
-            print(t, "- loss:", loss.item(), "- acc:", learn_accuracy * 100 / batch_size, '%')
+            if t%100 == 0:
+                print(t, "- loss:", loss.item(), "- acc:", learn_accuracy * 100 / batch_size, '%')
 
             if learn_accuracy == batch_size:
                 break
-
-            if learn_accuracy / batch_size > 0.99:
-                for k in range(batch_size):
-                    if Vdot[k] > -margin:
-                        print("Vdot" + str(S[k].tolist()) + " = " + str(Vdot[k].tolist()))
 
             loss.backward()
             optimizer.step()
@@ -147,4 +132,9 @@ class NN(nn.Module):
     # todo: mv to utils
     def orderOfMagnitude(self, number):
         return np.floor(np.log10(number))
+
+    @staticmethod
+    def get_timer():
+        return T
+
 

@@ -1,52 +1,12 @@
 import numpy as np
 import sympy as sp
+import timeit
 from z3 import *
 import torch
 from src.sympy_converter import sympy_converter
-
-def activation(x):
-    """
-    :param x: tensor, one dimensional
-    :return: tensor,
-    """
-    h = int(x.shape[0]/2)
-    x1, x2 = x[:h], x[h:]
-    return torch.cat([x1, torch.pow(x2, 2)]) # torch.pow(x, 2)
-    # return torch.pow(x, 2)
-    # return x*torch.relu(x)
-
-
-def activation_z3(x):
-    h = int(x.shape[0] / 2)
-    x1, x2 = x[:h, :], x[h:, :]
-    # return sp.Matrix.vstack([x1, sp.power(x2, 2)])
-    return np.vstack([x1, np.power(x2,2)])
-    # return np.power(x, 2)
-    # original_x = x
-    # for idx in range(len(x)):
-    #     x[idx, 0] = relu_z3(x[idx, 0])
-    # return np.multiply(original_x, x)
-
-
-def activation_der(x):
-    h = int(x.shape[0] / 2)
-    x1, x2 = x[:h], x[h:]
-    return torch.cat((torch.ones(x1.shape).double(), 2*x2))
-    # return 2 * x
-    # return 2*torch.relu(x)
-
-
-def activation_der_z3(x):
-    h = int(x.shape[0] / 2)
-    x1, x2 = x[:h, :], x[h:, :]
-    return np.vstack((sp.ones(h, 1), 2*x2))
-    # return 2 * x
-    # return 2*np.maximum(x,0)
-
-
-
-def relu_z3(x):
-    return If(x > 0, x, 0)
+import functools
+from src.activations import activation, activation_der
+from src.activations_symbolic import activation_z3, activation_der_z3
 
 
 def extract_val_from_z3(model, vars, useSympy):
@@ -150,10 +110,10 @@ def network_until_last_layer(net, x, rounding):
         b = sp.Matrix(sp.nsimplify(b, rational=True))
 
         zhat = w @ z + b
-        z = activation_z3(zhat)
+        z = activation_z3(net.acts[idx], zhat)
         # Vdot
         jacobian = w @ jacobian
-        jacobian = np.diagflat(activation_der_z3(zhat)) @ jacobian
+        jacobian = np.diagflat(activation_der_z3(net.acts[idx], zhat)) @ jacobian
 
     return z, jacobian
 
@@ -276,7 +236,10 @@ def compute_bounds(n_vars, f, equilibrium):
     # sols = check_real_solutions(sols, x_sp) # removes imaginary solutions
     min_dist = np.inf
     for index in range(len(sols)):
-        point = np.array(list(sols[index].values()))  # extract values from dict
+        try:
+            point = np.array(list(sols[index].values()))  # extract values from dict
+        except KeyError:
+            point = np.array(list(sols.values()))
         if not (point == x0).all():
             dist = compute_distance(point, x0)
             if dist < min_dist:
@@ -351,9 +314,9 @@ def forward_V(net, x):
             V: tensor, evaluation of x in net
     """
     y = x.double()
-    for layer in net.layers[:-1]:
+    for idx, layer in enumerate(net.layers[:-1]):
         z = layer(y)
-        y = activation(z)
+        y = activation(net.acts[idx], z)
     y = torch.matmul(y, net.layers[-1].weight.T)
     return y
 
@@ -365,16 +328,72 @@ def forward_Vdot(net, x, f):
     :return:
             Vdot: tensor, evaluation of x in derivative net
     """
-    y = x.double()
+    y = x.double()[None, :]
     xdot = torch.stack(f(x))
     jacobian = torch.diag_embed(torch.ones(x.shape[0], net.n_inp)).double()
 
-    for layer in net.layers[:-1]:
+    for idx, layer in enumerate(net.layers[:-1]):
         z = layer(y)
-        y = activation(z)
+        y = activation(net.acts[idx], z)
         jacobian = torch.matmul(layer.weight, jacobian)
-        jacobian = torch.matmul(torch.diag_embed(activation_der(z)), jacobian)
+        jacobian = torch.matmul(torch.diag_embed(activation_der(net.acts[idx], z)), jacobian)
 
     jacobian = torch.matmul(net.layers[-1].weight, jacobian)
 
     return torch.sum(torch.mul(jacobian[:, 0, :], xdot), dim=1).double()[0]
+
+
+def timer(t):
+    assert isinstance(t, Timer)
+
+    def dec(f):
+        @functools.wraps(f)
+        def wrapper(*a, **kw):
+            t.start()
+            x = f(*a, **kw)
+            t.stop()
+            return x
+        return wrapper
+    return dec
+
+
+class Timer:
+    def __init__(self):
+        self.min = self.max = self.n_updates = self._sum = self._start = 0
+        self.reset()
+
+    def reset(self):
+        """min diff, in seconds"""
+        self.min = 2 ** 63  # arbitrary
+        """max diff, in seconds"""
+        self.max = 0
+        """number of times the timer has been stopped"""
+        self.n_updates = 0
+
+        self._sum = 0
+        self._start = 0
+
+    def start(self):
+        self._start = timeit.default_timer()
+
+    def stop(self):
+        now = timeit.default_timer()
+        diff = now - self._start
+        assert now >= self._start > 0
+        self._start = 0
+        self.n_updates += 1
+        self._sum += diff
+        self.min = min(self.min, diff)
+        self.max = max(self.max, diff)
+
+    @property
+    def avg(self):
+        if self.n_updates == 0:
+            return 0
+        assert self._sum > 0
+        return self._sum / self.n_updates
+
+    def __repr__(self):
+        return "total={}s,min={}s,max={}s,avg={}s".format(
+                self._sum, self.min, self.max, self.avg
+        )

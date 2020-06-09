@@ -2,23 +2,20 @@ import torch
 import numpy as np
 from z3 import *
 import timeit
-from enum import Enum
-
+from src.consts import LearnerType, VerifierType
+from src.z3verifier import Z3Verifier
+from src.drealverifier import DRealVerifier
 from src.verifier import *
-from src.utils import get_symbolic_formula, print_section
+from src.utils import get_symbolic_formula, print_section, compute_trajectory
 from src.simplified_z3_learner import SimpleZ3Learner
 from src.net import NN
 from src.scipy_learner import ScipyLearner
 
-class LearnerType(Enum):
-    NN = 0
-    Z3 = 1
-    SCIPY = 2
-
 
 class Cegis():
     # todo: set params for NN and avoid useless definitions
-    def __init__(self, n_vars, f, learner_type, inner_radius, outer_radius, margin, n_hidden_neurons):
+    def __init__(self, n_vars, f, learner_type, verifier_type, inner_radius, outer_radius, \
+                 margin, n_hidden_neurons, activations):
         self.n = n_vars
         self.f = f
         self.learner_type = learner_type
@@ -40,9 +37,10 @@ class Cegis():
             self.xdot = f(self.x[0])
         self.x = np.matrix(self.x).T
         self.xdot = np.matrix(self.xdot).T
+        self.eq = np.zeros((self.n, 1))
 
         if learner_type == LearnerType.NN:
-            self.learner = NN(n_vars, *n_hidden_neurons, bias=True)
+            self.learner = NN(n_vars, *n_hidden_neurons, bias=True, activate=activations)
         elif learner_type == LearnerType.Z3:
             self.learner = SimpleZ3Learner(self.n)
         elif learner_type == LearnerType.SCIPY:
@@ -50,14 +48,21 @@ class Cegis():
         else:
             print('M8 I aint got this learner')
 
-        self.verifier = Z3Verifier(self.n, self.inner, self.outer, self.margin, self.x)
+        if verifier_type == VerifierType.Z3:
+            verifier = Z3Verifier
+        elif verifier_type == VerifierType.DREAL:
+            verifier = DRealVerifier
+        else:
+            raise ValueError('No verifier of type {}'.format(verifier_type))
+
+        self.verifier = verifier(self.n, self.eq, self.inner, self.outer, self.margin, self.x)
 
     # the cegis loop
     # todo: fix return, fix map(f, S)
     def solve(self):
         S = []
         for idx in range(self.batch_size):
-            s = torch.normal(0, self.outer / 3, size=torch.Size([self.n]))
+            s = torch.normal(0, self.outer / 3, size=torch.Size([self.n])).double()
             # if inner_radius < torch.norm(s) < outer_radius:
             S.append(s)
         Sdot = list(map(torch.tensor, map(self.f, S)))
@@ -80,7 +85,7 @@ class Cegis():
                 learned = self.learner.learn(self.optimizer, S, Sdot, self.margin)
 
                 # to disable rounded numbers, set rounding=-1
-                V, Vdot = get_symbolic_formula(self.learner, self.x, self.xdot, rounding=3)
+                V, Vdot = get_symbolic_formula(self.learner, self.x, self.xdot, equilibrium=self.eq, rounding=3)
                 V, Vdot = z3.simplify(V), z3.simplify(Vdot)
             else:
                 P = self.learner.learn(S.numpy().T, Sdot.numpy().T)
@@ -108,6 +113,8 @@ class Cegis():
                 trajectory = self.trajectoriser(ces[-1])
                 S, Sdot = self.add_ces_to_data(S, Sdot, trajectory)
 
+        print('Learner times: {}'.format(self.learner.get_timer()))
+        print('Verifier times: {}'.format(self.verifier.get_timer()))
         return self.learner, found, iters
 
     def add_ces_to_data(self, S, Sdot, ces):
@@ -119,7 +126,7 @@ class Cegis():
                 S: torch tensor, added new ctx
                 Sdot torch tensor, added  f(new_ctx)
         """
-        S = torch.cat([S, torch.stack(ces)], dim=0)
+        S = torch.cat([S, ces], dim=0)
         Sdot = torch.cat([Sdot, torch.stack(list(map(torch.tensor, map(self.f, ces))))], dim=0)
         return S, Sdot
 
@@ -127,4 +134,4 @@ class Cegis():
         point.requires_grad = True
         trajectory = compute_trajectory(self.learner, point, self.f)
 
-        return trajectory
+        return torch.stack(trajectory)
