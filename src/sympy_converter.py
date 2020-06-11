@@ -2,11 +2,14 @@ from __future__ import division
 from z3 import *
 import sympy as sp
 
-TARGET_Z3 = 1
-TARGET_SOLVER = 2
-TARGET_DREAL = 3
+try:
+    import dreal as dr
+except:
+    print('No dreal')
 
 # adapted from https://stackoverflow.com/questions/22488553/how-to-use-z3py-and-sympy-together
+from src.drealverifier import DRealVerifier
+from src.z3verifier import Z3Verifier
 
 
 def _sympy_converter(var_map, exp, target, expand_pow=False):
@@ -17,7 +20,7 @@ def _sympy_converter(var_map, exp, target, expand_pow=False):
         rv = var_map.get(exp.name, None)
     elif isinstance(exp, sp.Number):
         try:
-            rv = RealVal(exp) if target == TARGET_Z3 else sp.RealNumber(exp)
+            rv = RealVal(exp) if isinstance(target, Z3Verifier) else sp.RealNumber(exp)
         except:  # Z3 parser error
             rep = sp.Float(exp, len(str(exp)))
             rv = RealVal(rep)
@@ -42,28 +45,33 @@ def _sympy_converter(var_map, exp, target, expand_pow=False):
                 for _ in range(i):
                     rv *= x
             except:  # fallback
-                _sympy_converter(var_map, exp, target, expand_pow=False)
+                rv = _sympy_converter(var_map, exp, target, expand_pow=False)
         else:
             rv = x ** e
+    elif isinstance(exp, sp.Max):
+        x = _sympy_converter(var_map, exp.args[1], target, expand_pow=expand_pow)
+        print(x)
+        zero = exp.args[0]
+        rv = z3.If(x >= 0.0, x, 0.0)
+    elif isinstance(exp, sp.Heaviside):
+        x = _sympy_converter(var_map, exp.args[0], target, expand_pow=False)
+        rv = z3.If(x > 0.0, 1.0, 0.0)
+    elif isinstance(exp, sp.Function):
+        # check various activation types ONLY FOR DREAL
+        if isinstance(exp, sp.tanh):
+            rv = dr.tanh(_sympy_converter(var_map, exp.args[0], target, expand_pow=expand_pow))
+        elif isinstance(exp, sp.sin):
+            rv = dr.sin(_sympy_converter(var_map, exp.args[0], target, expand_pow=expand_pow))
+        elif isinstance(exp, sp.cos):
+            rv = dr.cos(_sympy_converter(var_map, exp.args[0], target, expand_pow=expand_pow))
+        elif isinstance(exp, sp.exp):
+            rv = dr.exp(_sympy_converter(var_map, exp.args[0], target, expand_pow=expand_pow))
+    else:
+        ValueError('Term ' + str(exp) + ' not recognised')
 
     assert rv is not None
     return rv
 
 
-def sympy_converter(exp, target=TARGET_Z3, var_map={}):
-    sympy_vars = exp.atoms(sp.Symbol)
-
-    vars = []
-
-    for var in sympy_vars:
-        name = var.name
-        if target == TARGET_Z3:
-            var = var_map.get(name, None)
-            if var is None:
-                var = Real(name)
-                var_map[name] = var
-        else:
-            var = var_map[name]
-        vars += [var]
-
-    return vars, var_map, _sympy_converter(var_map, exp, target)
+def sympy_converter(exp, target=Z3Verifier, var_map={}):
+    return _sympy_converter(var_map, exp, target)

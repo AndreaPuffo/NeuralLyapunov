@@ -1,6 +1,7 @@
 # pylint: disable=no-member
 # definition of various activation fcns
 import numpy as np
+import sympy as sp
 import z3
 import logging
 try:
@@ -14,7 +15,7 @@ def activation_z3(select, p):
     if select == ActivationType.IDENTITY:
         return p
     elif select == ActivationType.RELU:
-        return relu_z3(p)
+        return relu_sp(p)
     elif select == ActivationType.LINEAR:
         return p
     elif select == ActivationType.SQUARE:
@@ -72,10 +73,11 @@ def activation_der_z3(select, p):
         return l_o_der_z3(p)
 
 
-def relu_z3(x):
+def relu_sp(x):
     y = x.copy()
     for idx in range(len(y)):
-        y[idx, 0] = z3.If(y[idx, 0] > 0, y[idx, 0], 0)
+        y[idx, 0] = sp.Max(y[idx, 0], 0.0)
+        # y[idx, 0] = z3.If(y[idx, 0] > 0, y[idx, 0], 0.0)
     return y
 
 
@@ -166,8 +168,9 @@ def step_z3(x):
     original_shape = y.shape
     y = y.reshape(max(y.shape[0], y.shape[1]), 1)
     for idx in range(y.shape[0]):
-        y[idx, 0] = z3.If(y[idx, 0] > 0.0, 1.0, 0.0)  # using 0.0 and 1.0 avoids int/float issues
-    return y.reshape(original_shape)
+        y[idx, 0] = sp.Heaviside(y[idx, 0])
+        # y[idx, 0] = z3.If(y[idx, 0] > 0.0, 1.0, 0.0)  # using 0.0 and 1.0 avoids int/float issues
+    return y # .reshape(original_shape)
 
 
 def lin_square_der_z3(x):

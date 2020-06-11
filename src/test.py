@@ -12,8 +12,8 @@ torch.manual_seed(0)
 
 n_vars = 2
 f = benchmark_3
-activations = [ActivationType.SQUARE]
-n_hidden_neurons = [10] * len(activations)
+activations = [ActivationType.RELU]
+n_hidden_neurons = [3] * len(activations)
 
 outer_radius = 10
 inner_radius = 0

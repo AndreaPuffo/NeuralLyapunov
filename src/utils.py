@@ -3,7 +3,7 @@ import sympy as sp
 import timeit
 from z3 import *
 import torch
-from src.sympy_converter import sympy_converter
+#from src.sympy_converter import sympy_converter
 import functools
 from src.activations import activation, activation_der
 from src.activations_symbolic import activation_z3, activation_der_z3
@@ -73,13 +73,7 @@ def get_symbolic_formula(net, x, xdot, equilibrium=None, rounding=3):
     val_in_zero = sympy_replacements(V, sp.Matrix(x_sympy), equilibrium)
     assert val_in_zero == 0
 
-    _, __, V_z3 = sympy_converter(sp.simplify(V))
-    _, __, Vdot_z3 = sympy_converter(sp.simplify(Vdot))
-
-    val_in_zero = z3_replacements(V_z3, x, equilibrium)
-    assert val_in_zero == 0
-
-    return V_z3, Vdot_z3
+    return V, Vdot
 
 
 def network_until_last_layer(net, x, rounding):

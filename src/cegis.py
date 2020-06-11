@@ -1,5 +1,6 @@
 import torch
 import numpy as np
+import sympy as sp
 from z3 import *
 import timeit
 from src.consts import LearnerType, VerifierType
@@ -10,6 +11,7 @@ from src.utils import get_symbolic_formula, print_section, compute_trajectory
 from src.simplified_z3_learner import SimpleZ3Learner
 from src.net import NN
 from src.scipy_learner import ScipyLearner
+from src.sympy_converter import sympy_converter
 
 
 class Cegis():
@@ -30,6 +32,7 @@ class Cegis():
         self.learning_rate = .1
 
         self.x = [Real('x%d' % i) for i in range(n_vars)]
+        self.x_map = {str(x): x for x in self.x}
         # issues w/ dimensionality, maybe could be solved better
         if self.n > 1:
             self.xdot = f(self.x)
@@ -86,7 +89,9 @@ class Cegis():
 
                 # to disable rounded numbers, set rounding=-1
                 V, Vdot = get_symbolic_formula(self.learner, self.x, self.xdot, equilibrium=self.eq, rounding=3)
-                V, Vdot = z3.simplify(V), z3.simplify(Vdot)
+                V_z3 = sympy_converter(sp.simplify(V), var_map=self.x_map)
+                Vdot_z3 = sympy_converter(sp.simplify(Vdot), var_map=self.x_map)
+                V, Vdot = z3.simplify(V_z3), z3.simplify(Vdot_z3)
             else:
                 P = self.learner.learn(S.numpy().T, Sdot.numpy().T)
                 # might modify get_symbolic_formula to work with x*P*x Lyapunov candidate...
