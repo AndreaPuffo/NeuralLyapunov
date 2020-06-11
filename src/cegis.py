@@ -2,6 +2,7 @@ import torch
 import numpy as np
 import sympy as sp
 from z3 import *
+import dreal as dr
 import timeit
 from src.consts import LearnerType, VerifierType
 from src.z3verifier import Z3Verifier
@@ -30,7 +31,10 @@ class Cegis():
         self.batch_size = 500
         self.learning_rate = .1
 
-        self.x = [Real('x%d' % i) for i in range(n_vars)]
+        if verifier_type == VerifierType.Z3:
+            self.x = [Real('x%d' % i) for i in range(n_vars)]
+        else:
+            self.x = [dr.Variable('x%d' % i) for i in range(n_vars)]
         self.x_map = {str(x): x for x in self.x}
         # issues w/ dimensionality, maybe could be solved better
         if self.n > 1:
@@ -90,18 +94,20 @@ class Cegis():
                 learned = self.learner.learn(self.optimizer, S, Sdot, self.lf)
 
                 # to disable rounded numbers, set rounding=-1
-                V, Vdot = get_symbolic_formula(self.learner, self.x, self.xdot, self.eq, rounding=3, lf=self.lf)
-                V_z3 = sympy_converter(sp.simplify(V), var_map=self.x_map)
-                Vdot_z3 = sympy_converter(sp.simplify(Vdot), var_map=self.x_map)
-                V, Vdot = z3.simplify(V_z3), z3.simplify(Vdot_z3)
+                x_sp = [sp.Symbol('x%d' % i) for i in range(len(self.x))]
+                V_s, Vdot_s = get_symbolic_formula(self.learner, self.x, self.f(x_sp), self.eq, rounding=3, lf=self.lf)
+                V = sympy_converter(sp.simplify(V_s), var_map=self.x_map, target=type(self.verifier))
+                Vdot = sympy_converter(sp.simplify(Vdot_s), var_map=self.x_map, target=type(self.verifier))
+                if self.verifier == Z3Verifier:
+                    V, Vdot = z3.simplify(V), z3.simplify(Vdot)
             else:
                 P = self.learner.learn(S.numpy().T, Sdot.numpy().T)
                 # might modify get_symbolic_formula to work with x*P*x Lyapunov candidate...
                 V, Vdot = self.learner.get_poly_formula(self.x, self.xdot, P)
 
             print_section('Candidate', iters)
-            print(f'V: {V}')
-            print(f'Vdot: {Vdot}')
+            print(f'V: {V_s}')
+            print(f'Vdot: {Vdot_s}')
 
             print_section('Verification', iters)
             found, ces = self.verifier.verify(V, Vdot)
@@ -115,10 +121,11 @@ class Cegis():
                 stop = True
             else:
                 iters += 1
-                S, Sdot = self.add_ces_to_data(S, Sdot, ces)
-                # the original ctx is in the last row of ces
-                trajectory = self.trajectoriser(ces[-1])
-                S, Sdot = self.add_ces_to_data(S, Sdot, trajectory)
+                if len(ces) > 0:
+                    S, Sdot = self.add_ces_to_data(S, Sdot, ces)
+                    # the original ctx is in the last row of ces
+                    trajectory = self.trajectoriser(ces[-1])
+                    S, Sdot = self.add_ces_to_data(S, Sdot, trajectory)
 
         print('Learner times: {}'.format(self.learner.get_timer()))
         print('Verifier times: {}'.format(self.verifier.get_timer()))

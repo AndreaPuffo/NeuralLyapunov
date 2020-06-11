@@ -26,8 +26,8 @@ class DRealVerifier(Verifier):
 
     def is_unsat(self, res) -> bool:
         # int(str("x0")) = 0
-        bounds_not_ok = isinstance(res, Box) and any(not self.in_bounds(int(str(x)[1:]), interval.mid()) for x, interval in res.items())
-        return res is None or bounds_not_ok
+        # bounds_not_ok = isinstance(res, Box) and any(not self.in_bounds(int(str(x)[1:]), interval.mid()) for x, interval in res.items())
+        return res is None # or bounds_not_ok
 
     def _solver_solve(self, solver, fml):
         return CheckSatisfiability(fml, 0.00001)

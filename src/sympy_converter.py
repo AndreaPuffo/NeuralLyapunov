@@ -51,10 +51,16 @@ def _sympy_converter(var_map, exp, target, expand_pow=False):
     elif isinstance(exp, sp.Max):
         x = _sympy_converter(var_map, exp.args[1], target, expand_pow=expand_pow)
         zero = exp.args[0]
-        rv = z3.If(x >= 0.0, x, 0.0)
+        if target == Z3Verifier:
+            rv = z3.If(x >= 0.0, x, 0.0)
+        else:
+            rv = dr.max(x, 0.0)
     elif isinstance(exp, sp.Heaviside):
         x = _sympy_converter(var_map, exp.args[0], target, expand_pow=False)
-        rv = z3.If(x > 0.0, 1.0, 0.0)
+        if target == Z3Verifier:
+            rv = z3.If(x > 0.0, 1.0, 0.0)
+        else:
+            rv = dr.if_then_else(x>0.0, 1.0, 0.0)
     elif isinstance(exp, sp.Function):
         # check various activation types ONLY FOR DREAL
         if isinstance(exp, sp.tanh):

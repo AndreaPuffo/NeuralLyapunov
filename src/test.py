@@ -12,7 +12,7 @@ from src.consts import VerifierType, LearnerType
 torch.manual_seed(0)
 
 n_vars = 2
-f = benchmark_0
+f = benchmark_3
 x = [sp.Symbol('x%d' % i) for i in range(n_vars)]
 
 # compute equilibria and pass them as an array to cegis
@@ -22,7 +22,7 @@ real_eq = dict_to_array(real_eq, n_vars)
 
 # define NN parameters
 activations = [ActivationType.RELU]
-n_hidden_neurons = [10] * len(activations)
+n_hidden_neurons = [3] * len(activations)
 
 # define domain constraints
 outer_radius = 10

@@ -12,12 +12,13 @@ class Verifier:
         self.n = n_vars
         self.eq = equilibrium
         self.inner = inner_radius
-        self.counterexample_n = 10
+        self.counterexample_n = 50
         self.outer = outer_radius
         self._last_cex = []
         self._n_cex_to_keep = self.counterexample_n * 1
         self.xs = solver_vars
-        self._solver_timeout = 30
+        self._solver_timeout = 60
+        self._vars_bounds = 1e300
 
         assert self.counterexample_n > 0
 
@@ -72,6 +73,7 @@ class Verifier:
         res, timedout = self.solve_with_timeout(s, fmls)
         if timedout:
             print(":/ timed out")
+            return False, []
         C = []
         if self.is_unsat(res):
             print('No counterexamples found!')
@@ -94,11 +96,12 @@ class Verifier:
         lyap_negated = _Or(V <= 0, Vdot > 0)
 
         domain_constr = []
+        domain_fml = True
         for idx in range(self.eq.shape[0]):
             circle = self.circle_constr(self.eq[idx, :])
             domain_constr += [_And(circle > self.inner ** 2, circle < self.outer ** 2)]
-
-        return _And(_And(domain_constr), lyap_negated)
+        # _And(*(domain_constr for _ in range(len(domain_constr))))
+        return _And(domain_constr[0], lyap_negated)
 
     def circle_constr(self, c):
         """
@@ -153,12 +156,16 @@ class Verifier:
         # dimensionality issue
         shape = (1, max(point.shape[0], point.shape[1]))
         point = point.reshape(shape)
-        for i in range(50):
+        for i in range(self.counterexample_n):
             random_point = point + 5*1e-4 * torch.randn(shape).double()
             # if self.inner < torch.norm(random_point) < self.outer:
             C.append(random_point)
         C.append(point.double())
         return torch.stack(C, dim=1)[0, :, :]
+
+    def in_bounds(self, var, n):
+        left, right = self._vars_bounds[var]
+        return left < n < right
 
     @staticmethod
     def get_timer():
