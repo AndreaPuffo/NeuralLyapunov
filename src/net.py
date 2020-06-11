@@ -8,12 +8,12 @@ T = Timer()
 
 
 class NN(nn.Module):
-    def __init__(self, n_inp, *args, bias=False, activate=ActivationType.LIN_SQUARE):
+    def __init__(self, n_inp, *args, bias=False, activate=ActivationType.LIN_SQUARE, equilibria=0):
         super(NN, self).__init__()
 
         self.n_inp = n_inp
         n_prev = n_inp
-        self.equilibrium = torch.zeros((1, self.n_inp)).double()
+        self.eq = equilibria
         self.acts = activate
         self._is_there_bias = bias
         self.layers = []
@@ -43,6 +43,7 @@ class NN(nn.Module):
         :return:
                 V: tensor, evaluation of x in net
                 Vdot: tensor, evaluation of x in derivative net
+                jacobian: tensor, evaluation of grad_net
         """
         y = x.double()
         jacobian = torch.diag_embed(torch.ones(x.shape[0], self.n_inp)).double()
@@ -58,7 +59,7 @@ class NN(nn.Module):
         jacobian = torch.matmul(self.layers[-1].weight, jacobian)
         numerical_vdot = torch.sum(torch.mul(jacobian[:, 0, :], xdot), dim=1).double()
 
-        return numerical_v[:, 0], numerical_vdot, y
+        return numerical_v[:, 0], numerical_vdot, jacobian[:, 0, :]
 
     def numerical_net(self, S, Sdot):
         """
@@ -69,15 +70,30 @@ class NN(nn.Module):
         """
         assert (len(S) == len(Sdot))
 
-        V, Vdot, _ = self.forward_tensors(S, Sdot)
+        nn, grad_times_f, grad_nn = self.forward_tensors(S, Sdot)
         # circle = x0*x0 + ... + xN*xN
         circle = torch.pow(S, 2).sum(dim=1)
+        E, factors = 1, []
+        for idx in range(self.eq.shape[0]):
+            # S - self.eq == [ x-x_eq, y-y_eq ]
+            # (vector_x - eq_0) = ( x-x_eq + y-y_eq )
+            E *= torch.sum(S - torch.tensor(self.eq[idx, :]), dim=1)
+            factors.append(torch.sum(S - torch.tensor(self.eq[idx, :]), dim=1))
+        derivative_e = torch.stack([torch.sum(torch.stack(factors), dim=0), torch.sum(torch.stack(factors), dim=0)]).T
+
+        # define E(x) := (x-eq_0) * ... * (x-eq_N)
+        # V = NN(x) * E(x)
+        V = nn * E
+        # gradV = NN(x) * dE(x)/dx  + der(NN) * E(x)
+        gradV = torch.stack([nn, nn]).T * derivative_e + grad_nn * torch.stack([E, E]).T
+        # Vdot = gradV * f(x)
+        Vdot = torch.sum(torch.mul(gradV, Sdot), dim=1).double()
 
         return V, Vdot, circle
 
     # backprop algo
     @timer(T)
-    def learn(self, optimizer, S, S_dot, margin):
+    def learn(self, optimizer, S, S_dot):
         """
         :param optimizer: torch optimiser
         :param S: tensor of data
@@ -89,6 +105,7 @@ class NN(nn.Module):
 
         batch_size = len(S)
         learn_loops = 1000
+        margin = 0.01
 
         for t in range(learn_loops):
             optimizer.zero_grad()

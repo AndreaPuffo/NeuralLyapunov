@@ -39,5 +39,5 @@ class DRealVerifier(Verifier):
     def _model_result(self, solver, model, x, idx):
         return float(model[idx].mid())
 
-    def __init__(self, n_vars, equilibrium, inner_radius, outer_radius, margin, dreal_vars):
-        super().__init__(n_vars, equilibrium, inner_radius, outer_radius, margin, dreal_vars)
+    def __init__(self, n_vars, equilibrium, inner_radius, outer_radius, dreal_vars):
+        super().__init__(n_vars, equilibrium, inner_radius, outer_radius, dreal_vars)

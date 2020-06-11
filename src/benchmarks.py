@@ -53,7 +53,7 @@ def benchmark_0(v):
     # test function, not to be included
     x, y = v
     return [
-        -x,
+        -x**2 + 1,
         -y
     ]
 

@@ -66,13 +66,21 @@ def get_symbolic_formula(net, x, xdot, equilibrium=None, rounding=3):
     # this now contains the gradient \nabla V
     jacobian = projected_last_layer @ jacobian
 
-    Vdot = jacobian @ sp.Matrix(xdot)
-    assert z.shape == (1, 1) and Vdot.shape == (1, 1)
-    V = z[0, 0]
+    assert z.shape == (1, 1)
+    # V = NN(x) * E(x)
+    E, factors = 1, []
+    for idx in range(equilibrium.shape[0]):
+        E *= sp.simplify(sum((x.T - equilibrium[idx, :]).T)[0,0])
+        factors.append(sp.simplify(sum((x.T - equilibrium[idx, :]).T)[0,0]))
+    derivative_e = np.vstack([sum(factors), sum(factors)]).T
+
+    V = z[0, 0] * E
+    # gradV = der(NN) * E + dE/dx * NN
+    gradV = np.multiply(jacobian, np.vstack([E,E]).T) + derivative_e * np.vstack([z[0,0], z[0,0]]).T
+    # Vdot = gradV * f(x)
+    Vdot = gradV @ sp.Matrix(xdot)
     Vdot = Vdot[0, 0]
 
-    # removed the zero check
-    
     return V, Vdot
 
 
@@ -206,6 +214,16 @@ def check_real_solutions(sols, x):
             good_sols.append(sol)
     return good_sols
 
+
+def dict_to_array(dict, n):
+    """
+    :param dict:
+    :return:
+    """
+    array = np.zeros((len(dict), n))
+    for idx in range(len(dict)):
+        array[idx, :] = list(dict[idx].values())
+    return array
 
 def compute_distance(point, equilibrium):
     """

@@ -7,7 +7,7 @@ T = Timer()
 
 
 class Verifier:
-    def __init__(self, n_vars, equilibrium, inner_radius, outer_radius, margin, solver_vars):
+    def __init__(self, n_vars, equilibrium, inner_radius, outer_radius, solver_vars):
         self.iter = -1
         self.n = n_vars
         self.eq = equilibrium
@@ -91,11 +91,14 @@ class Verifier:
         _Or = self.solver_fncts()['Or']
         _And = self.solver_fncts()['And']
 
-        circle = self.circle_constr(self.eq)
         lyap_negated = _Or(V <= 0, Vdot > 0)
-        domain = _And(circle > self.inner ** 2, circle < self.outer ** 2)
 
-        return _And(domain, lyap_negated)
+        domain_constr = []
+        for idx in range(self.eq.shape[0]):
+            circle = self.circle_constr(self.eq[idx, :])
+            domain_constr += [_And(circle > self.inner ** 2, circle < self.outer ** 2)]
+
+        return _And(_And(domain_constr), lyap_negated)
 
     def circle_constr(self, c):
         """

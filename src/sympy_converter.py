@@ -50,7 +50,6 @@ def _sympy_converter(var_map, exp, target, expand_pow=False):
             rv = x ** e
     elif isinstance(exp, sp.Max):
         x = _sympy_converter(var_map, exp.args[1], target, expand_pow=expand_pow)
-        print(x)
         zero = exp.args[0]
         rv = z3.If(x >= 0.0, x, 0.0)
     elif isinstance(exp, sp.Heaviside):

@@ -17,13 +17,12 @@ from src.sympy_converter import sympy_converter
 class Cegis():
     # todo: set params for NN and avoid useless definitions
     def __init__(self, n_vars, f, learner_type, verifier_type, inner_radius, outer_radius, \
-                 margin, n_hidden_neurons, activations):
+                 equilibria, n_hidden_neurons, activations):
         self.n = n_vars
         self.f = f
         self.learner_type = learner_type
         self.inner = inner_radius
         self.outer = outer_radius
-        self.margin = margin
         self.h = n_hidden_neurons
         self.max_cegis_iter = 5
 
@@ -40,10 +39,10 @@ class Cegis():
             self.xdot = f(self.x[0])
         self.x = np.matrix(self.x).T
         self.xdot = np.matrix(self.xdot).T
-        self.eq = np.zeros((self.n, 1))
+        self.eq = equilibria
 
         if learner_type == LearnerType.NN:
-            self.learner = NN(n_vars, *n_hidden_neurons, bias=True, activate=activations)
+            self.learner = NN(n_vars, *n_hidden_neurons, bias=True, activate=activations, equilibria=self.eq)
         elif learner_type == LearnerType.Z3:
             self.learner = SimpleZ3Learner(self.n)
         elif learner_type == LearnerType.SCIPY:
@@ -58,7 +57,7 @@ class Cegis():
         else:
             raise ValueError('No verifier of type {}'.format(verifier_type))
 
-        self.verifier = verifier(self.n, self.eq, self.inner, self.outer, self.margin, self.x)
+        self.verifier = verifier(self.n, self.eq, self.inner, self.outer, self.x)
 
     # the cegis loop
     # todo: fix return, fix map(f, S)
@@ -85,7 +84,7 @@ class Cegis():
 
             print_section('Learning', iters)
             if self.learner_type == LearnerType.NN:
-                learned = self.learner.learn(self.optimizer, S, Sdot, self.margin)
+                learned = self.learner.learn(self.optimizer, S, Sdot)
 
                 # to disable rounded numbers, set rounding=-1
                 V, Vdot = get_symbolic_formula(self.learner, self.x, self.xdot, equilibrium=self.eq, rounding=3)
