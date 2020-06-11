@@ -46,7 +46,7 @@ def to_numpy(x):
     return np.float(sp.Rational(x))
 
 
-def get_symbolic_formula(net, x, xdot, equilibrium=None, rounding=3):
+def get_symbolic_formula(net, x, xdot, equilibrium=None, rounding=3, lf=False):
     """
     :param net:
     :param x:
@@ -58,7 +58,7 @@ def get_symbolic_formula(net, x, xdot, equilibrium=None, rounding=3):
     z, jacobian = network_until_last_layer(net, sp.Matrix(x_sympy), rounding)
 
     if equilibrium is None:
-        equilibrium = np.zeros((net.n_inp, 1))
+        equilibrium = np.zeros((net.input_size, 1))
 
     # projected_last_layer = weights_projection(net, equilibrium, rounding, z)
     projected_last_layer = np.round(net.layers[-1].weight.data.numpy(), rounding)
@@ -68,20 +68,47 @@ def get_symbolic_formula(net, x, xdot, equilibrium=None, rounding=3):
 
     assert z.shape == (1, 1)
     # V = NN(x) * E(x)
-    E, factors = 1, []
-    for idx in range(equilibrium.shape[0]):
-        E *= sp.simplify(sum((x.T - equilibrium[idx, :]).T)[0,0])
-        factors.append(sp.simplify(sum((x.T - equilibrium[idx, :]).T)[0,0]))
-    derivative_e = np.vstack([sum(factors), sum(factors)]).T
-
+    E, derivative_e = compute_factors(equilibrium, np.matrix(x_sympy), lf)
     V = z[0, 0] * E
     # gradV = der(NN) * E + dE/dx * NN
-    gradV = np.multiply(jacobian, np.vstack([E,E]).T) + derivative_e * np.vstack([z[0,0], z[0,0]]).T
+    gradV = np.multiply(jacobian, np.vstack([E,E]).T) + np.multiply(derivative_e, np.vstack([z[0,0], z[0,0]]).T)
     # Vdot = gradV * f(x)
     Vdot = gradV @ sp.Matrix(xdot)
     Vdot = Vdot[0, 0]
 
     return V, Vdot
+
+
+def compute_factors(equilibrium, x, lf):
+    """
+    :param equilibrium:
+    :param x:
+    :param lf: linear factors
+    :return:
+    """
+    if lf:
+        E, factors, temp = 1, [], []
+        for idx in range(equilibrium.shape[0]):
+            E *= sp.simplify(sum((x.T - equilibrium[idx, :]).T)[0, 0])
+            factors.append(sp.simplify(sum((x.T - equilibrium[idx, :]).T)[0, 0]))
+        for idx in range(len(x)):
+            temp += [sum(factors)]
+        derivative_e = np.vstack(temp).T
+    else: # quadratic terms
+        E, temp = 1, []
+        factors = np.full(shape=(equilibrium.shape[0], x.shape[1]), dtype=object, fill_value=0)
+        for idx in range(equilibrium.shape[0]): # number of equilibrium points
+            E *= sum(np.power((x.T - equilibrium[idx, :].reshape(x.T.shape)), 2))[0,0]
+            factors[idx] = (x - equilibrium[idx, :].reshape(x.shape))
+        # derivative = 2*(x-eq)*E/E_i
+        grad_e = sp.zeros(1, x.shape[1])
+        for var in range(x.shape[1]):
+            for idx in range(equilibrium.shape[0]):
+                grad_e[var] += sp.simplify(
+                    E * factors[idx, var] / sum(np.power((x.T - equilibrium[idx, :].reshape(x.T.shape)), 2))[0,0]
+                            )
+        derivative_e = 2 * grad_e
+    return E, derivative_e
 
 
 def network_until_last_layer(net, x, rounding):
@@ -92,7 +119,7 @@ def network_until_last_layer(net, x, rounding):
     :return:
     """
     z = x
-    jacobian = np.eye(net.n_inp, net.n_inp)
+    jacobian = np.eye(net.input_size, net.input_size)
 
     for idx, layer in enumerate(net.layers[:-1]):
         if rounding < 0:
@@ -204,6 +231,8 @@ def check_real_solutions(sols, x):
     :return: list of dict w real solutions
     """
     good_sols = []
+    if isinstance(sols, dict):
+        sols = [sols]
     for sol in sols:
         is_good_sol = True
         for index in range(len(sol)):
@@ -342,7 +371,7 @@ def forward_Vdot(net, x, f):
     """
     y = x.double()[None, :]
     xdot = torch.stack(f(x))
-    jacobian = torch.diag_embed(torch.ones(x.shape[0], net.n_inp)).double()
+    jacobian = torch.diag_embed(torch.ones(x.shape[0], net.input_size)).double()
 
     for idx, layer in enumerate(net.layers[:-1]):
         z = layer(y)

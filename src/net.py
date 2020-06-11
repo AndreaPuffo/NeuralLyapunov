@@ -8,11 +8,11 @@ T = Timer()
 
 
 class NN(nn.Module):
-    def __init__(self, n_inp, *args, bias=False, activate=ActivationType.LIN_SQUARE, equilibria=0):
+    def __init__(self, input_size, *args, bias=False, activate=ActivationType.LIN_SQUARE, equilibria=0):
         super(NN, self).__init__()
 
-        self.n_inp = n_inp
-        n_prev = n_inp
+        self.input_size = input_size
+        n_prev = input_size
         self.eq = equilibria
         self.acts = activate
         self._is_there_bias = bias
@@ -46,7 +46,7 @@ class NN(nn.Module):
                 jacobian: tensor, evaluation of grad_net
         """
         y = x.double()
-        jacobian = torch.diag_embed(torch.ones(x.shape[0], self.n_inp)).double()
+        jacobian = torch.diag_embed(torch.ones(x.shape[0], self.input_size)).double()
 
         for idx, layer in enumerate(self.layers[:-1]):
             z = layer(y)
@@ -61,7 +61,7 @@ class NN(nn.Module):
 
         return numerical_v[:, 0], numerical_vdot, jacobian[:, 0, :]
 
-    def numerical_net(self, S, Sdot):
+    def numerical_net(self, S, Sdot, lf):
         """
         :param net: NN object
         :param S: tensor
@@ -73,13 +73,8 @@ class NN(nn.Module):
         nn, grad_times_f, grad_nn = self.forward_tensors(S, Sdot)
         # circle = x0*x0 + ... + xN*xN
         circle = torch.pow(S, 2).sum(dim=1)
-        E, factors = 1, []
-        for idx in range(self.eq.shape[0]):
-            # S - self.eq == [ x-x_eq, y-y_eq ]
-            # (vector_x - eq_0) = ( x-x_eq + y-y_eq )
-            E *= torch.sum(S - torch.tensor(self.eq[idx, :]), dim=1)
-            factors.append(torch.sum(S - torch.tensor(self.eq[idx, :]), dim=1))
-        derivative_e = torch.stack([torch.sum(torch.stack(factors), dim=0), torch.sum(torch.stack(factors), dim=0)]).T
+
+        E, derivative_e = self.compute_factors(S, lf)
 
         # define E(x) := (x-eq_0) * ... * (x-eq_N)
         # V = NN(x) * E(x)
@@ -91,9 +86,45 @@ class NN(nn.Module):
 
         return V, Vdot, circle
 
+    def compute_factors(self, S, lf):
+        E, factors = 1, []
+        if lf: # linear factors
+            for idx in range(self.eq.shape[0]):
+                # S - self.eq == [ x-x_eq, y-y_eq ]
+                # (vector_x - eq_0) = ( x-x_eq + y-y_eq )
+                E *= torch.sum(S - torch.tensor(self.eq[idx, :]), dim=1)
+                factors.append(torch.sum(S - torch.tensor(self.eq[idx, :]), dim=1))
+            # E = (x-x_eq0 + y-y_eq0) * (x-x_eq1 + y-y_eq1)
+            # dE/dx = (x-x_eq0 + y-y_eq0) + (x-x_eq1 + y-y_eq1) = dE/dy
+            grad = []
+            for idx in range(self.input_size):
+                grad += [torch.sum(torch.stack(factors), dim=0)]
+            derivative_e = torch.stack(grad).T
+        else: # quadratic factors
+            # define a tensor to store all the components of the quadratic factors
+            # factors[:,:,0] stores [ x-x_eq0, y-y_eq0 ]
+            # factors[:,:,1] stores [ x-x_eq1, y-y_eq1 ]
+            factors = torch.zeros(S.shape[0], self.input_size, self.eq.shape[0])
+            for idx in range(self.eq.shape[0]):
+                # S - self.eq == [ x-x_eq, y-y_eq ]
+                # torch.power(S - self.eq, 2) == [ (x-x_eq)**2, (y-y_eq)**2 ]
+                # (vector_x - eq_0)**2 =  (x-x_eq)**2 + (y-y_eq)**2
+                factors[:, :, idx] = S-torch.tensor(self.eq[idx, :])
+                E *= torch.sum(torch.pow(S-torch.tensor(self.eq[idx, :]), 2), dim=1)
+
+            # derivative = 2*(x-eq)*E/E_i
+            grad_e = torch.zeros(S.shape[0], self.input_size)
+            for var in range(self.input_size):
+                for idx in range(self.eq.shape[0]):
+                    grad_e[:, var] += \
+                        E * factors[:,var,idx] / torch.sum(torch.pow(S-torch.tensor(self.eq[idx, :]), 2), dim=1)
+            derivative_e = 2*grad_e
+
+        return E, derivative_e
+
     # backprop algo
     @timer(T)
-    def learn(self, optimizer, S, S_dot):
+    def learn(self, optimizer, S, S_dot, linear_factors):
         """
         :param optimizer: torch optimiser
         :param S: tensor of data
@@ -104,13 +135,13 @@ class NN(nn.Module):
         assert (len(S) == len(S_dot))
 
         batch_size = len(S)
-        learn_loops = 1000
+        learn_loops = 100
         margin = 0.01
 
         for t in range(learn_loops):
             optimizer.zero_grad()
 
-            V, Vdot, circle = self.numerical_net(S, S_dot)
+            V, Vdot, circle = self.numerical_net(S, S_dot, linear_factors)
             learn_accuracy = 0.5 * ( sum(Vdot <= -margin).item() + sum(V >= margin).item() )
 
             slope = 10 ** (self.orderOfMagnitude(max(abs(Vdot)).detach()))
@@ -142,7 +173,7 @@ class NN(nn.Module):
         # make the projection w/o gradient operations with torch.no_grad
         with torch.no_grad():
             self.layers[-1].weight.data = self.layers[-1].weight @ projection_mat
-            x0 = torch.zeros((1, self.n_inp)).double()
+            x0 = torch.zeros((1, self.input_size)).double()
             # v0, _, _ = self.forward_tensors(x0, x0)
             # print('Zero in zero? V(0) = {}'.format(v0.data.item()))
 

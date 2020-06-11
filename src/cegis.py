@@ -17,7 +17,7 @@ from src.sympy_converter import sympy_converter
 class Cegis():
     # todo: set params for NN and avoid useless definitions
     def __init__(self, n_vars, f, learner_type, verifier_type, inner_radius, outer_radius, \
-                 equilibria, n_hidden_neurons, activations):
+                 equilibria, n_hidden_neurons, activations, linear_factor=False):
         self.n = n_vars
         self.f = f
         self.learner_type = learner_type
@@ -59,6 +59,9 @@ class Cegis():
 
         self.verifier = verifier(self.n, self.eq, self.inner, self.outer, self.x)
 
+        # factorisation option
+        self.lf = linear_factor
+
     # the cegis loop
     # todo: fix return, fix map(f, S)
     def solve(self):
@@ -84,10 +87,10 @@ class Cegis():
 
             print_section('Learning', iters)
             if self.learner_type == LearnerType.NN:
-                learned = self.learner.learn(self.optimizer, S, Sdot)
+                learned = self.learner.learn(self.optimizer, S, Sdot, self.lf)
 
                 # to disable rounded numbers, set rounding=-1
-                V, Vdot = get_symbolic_formula(self.learner, self.x, self.xdot, equilibrium=self.eq, rounding=3)
+                V, Vdot = get_symbolic_formula(self.learner, self.x, self.xdot, self.eq, rounding=3, lf=self.lf)
                 V_z3 = sympy_converter(sp.simplify(V), var_map=self.x_map)
                 Vdot_z3 = sympy_converter(sp.simplify(Vdot), var_map=self.x_map)
                 V, Vdot = z3.simplify(V_z3), z3.simplify(Vdot_z3)

@@ -22,7 +22,7 @@ real_eq = dict_to_array(real_eq, n_vars)
 
 # define NN parameters
 activations = [ActivationType.RELU]
-n_hidden_neurons = [3] * len(activations)
+n_hidden_neurons = [10] * len(activations)
 
 # define domain constraints
 outer_radius = 10
@@ -32,12 +32,14 @@ learner_type = LearnerType.NN
 verifier_type = VerifierType.Z3
 
 """
-the candidate Lyap is now (x-eq0) * ... * (x-eqN) * NN(x)
+the candidate Lyap is now (x-eq0)^2 * ... * (x-eqN)^2 * NN(x)
+can have (x-eq0) * ... * (x-eqN) * NN(x) by passing linear_factor=True to Cegis
 """
-
+linear_factors=False
 
 start = timeit.default_timer()
-c = Cegis(n_vars, f, learner_type, verifier_type, inner_radius, outer_radius, real_eq, n_hidden_neurons, activations)
+c = Cegis(n_vars, f, learner_type, verifier_type, inner_radius, outer_radius, real_eq, n_hidden_neurons, activations,
+          linear_factor=linear_factors)
 c.solve()
 stop = timeit.default_timer()
 print('Elapsed Time: {}'.format(stop-start))
