@@ -150,7 +150,7 @@ class Verifier:
         # dimensionality issue
         shape = (1, max(point.shape[0], point.shape[1]))
         point = point.reshape(shape)
-        for i in range(20):
+        for i in range(50):
             random_point = point + 5*1e-4 * torch.randn(shape).double()
             # if self.inner < torch.norm(random_point) < self.outer:
             C.append(random_point)

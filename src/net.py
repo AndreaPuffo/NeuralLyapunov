@@ -103,14 +103,14 @@ class NN(nn.Module):
             if t%100 == 0:
                 print(t, "- loss:", loss.item(), "- acc:", learn_accuracy * 100 / batch_size, '%')
 
-            if learn_accuracy == batch_size:
-                break
-
             loss.backward()
             optimizer.step()
 
-            if self._is_there_bias:
-                self.weights_projection()
+            if learn_accuracy == batch_size:
+                break
+
+            # if self._is_there_bias:
+            #     self.weights_projection()
 
     def weights_projection(self):
         # bias_vector = self.layers[0].bias.double()
@@ -131,7 +131,10 @@ class NN(nn.Module):
 
     # todo: mv to utils
     def orderOfMagnitude(self, number):
-        return np.floor(np.log10(number))
+        if number.item() != 0:
+            return np.floor(np.log10(number))
+        else:
+            return 1.0
 
     @staticmethod
     def get_timer():
