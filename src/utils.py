@@ -69,12 +69,12 @@ def get_symbolic_formula(net, x, xdot, equilibrium=None, rounding=3, lf=False):
     assert z.shape == (1, 1)
     # V = NN(x) * E(x)
     E, derivative_e = compute_factors(equilibrium, np.matrix(x_sympy), lf)
-    V = z[0, 0] * E
+    V = sp.expand(z[0, 0] * E)
     # gradV = der(NN) * E + dE/dx * NN
     gradV = np.multiply(jacobian, np.vstack([E,E]).T) + np.multiply(derivative_e, np.vstack([z[0,0], z[0,0]]).T)
     # Vdot = gradV * f(x)
     Vdot = gradV @ sp.Matrix(xdot)
-    Vdot = Vdot[0, 0]
+    Vdot = sp.expand(Vdot[0, 0])
 
     return V, Vdot
 

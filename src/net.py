@@ -136,7 +136,7 @@ class NN(nn.Module):
 
         batch_size = len(S)
         learn_loops = 1000
-        margin = 0.01
+        margin = 0.001
 
         for t in range(learn_loops):
             optimizer.zero_grad()
@@ -148,7 +148,7 @@ class NN(nn.Module):
             leaky_relu = torch.nn.LeakyReLU(1 / slope)
             loss = (leaky_relu(Vdot + margin * circle)).mean() + (leaky_relu(-V + margin * circle)).mean()
 
-            if t%100 == 0:
+            if t%100 == 0 or t==learn_loops-1:
                 print(t, "- loss:", loss.item(), "- acc:", learn_accuracy * 100 / batch_size, '%')
 
             loss.backward()

@@ -99,8 +99,9 @@ class Cegis():
                 # to disable rounded numbers, set rounding=-1
                 x_sp = [sp.Symbol('x%d' % i) for i in range(len(self.x))]
                 V_s, Vdot_s = get_symbolic_formula(self.learner, self.x, self.f(x_sp), self.eq, rounding=3, lf=self.lf)
-                V = sympy_converter(sp.simplify(V_s), var_map=self.x_map, target=type(self.verifier))
-                Vdot = sympy_converter(sp.simplify(Vdot_s), var_map=self.x_map, target=type(self.verifier))
+                V_s, Vdot_s = sp.simplify(V_s), sp.simplify(Vdot_s)
+                V = sympy_converter(V_s, var_map=self.x_map, target=type(self.verifier))
+                Vdot = sympy_converter(Vdot_s, var_map=self.x_map, target=type(self.verifier))
                 if self.verifier == Z3Verifier:
                     V, Vdot = z3.simplify(V), z3.simplify(Vdot)
             else:

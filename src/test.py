@@ -21,8 +21,8 @@ real_eq = check_real_solutions(equilibria, x)
 real_eq = dict_to_array(real_eq, n_vars)
 
 # define NN parameters
-activations = [ActivationType.RELU]
-n_hidden_neurons = [3] * len(activations)
+activations = [ActivationType.LINEAR, ActivationType.LINEAR]
+n_hidden_neurons = [10] * len(activations)
 
 # define domain constraints
 outer_radius = 10

@@ -84,7 +84,7 @@ class Verifier:
             value_in_ctx, value_in_vdot = z3_replacements(V, self.xs, original_point.numpy().T), \
                                           z3_replacements(Vdot, self.xs, original_point.numpy().T)
             print('V(ctx) = ', value_in_ctx)
-            print('Vdot(ctx) = ', value_in_ctx)
+            print('Vdot(ctx) = ', value_in_vdot)
             C = self.randomise_counterex(original_point)
 
         return found_lyap, C
