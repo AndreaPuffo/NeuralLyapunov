@@ -135,7 +135,7 @@ class NN(nn.Module):
         assert (len(S) == len(S_dot))
 
         batch_size = len(S)
-        learn_loops = 100
+        learn_loops = 1000
         margin = 0.01
 
         for t in range(learn_loops):

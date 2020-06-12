@@ -2,6 +2,7 @@ import torch
 from src.utils import Timer, timer
 import numpy as np
 import timeit
+from src.utils import z3_replacements
 
 T = Timer()
 
@@ -80,6 +81,10 @@ class Verifier:
             found_lyap = True
         else:
             original_point = self.compute_model(s, res)
+            value_in_ctx, value_in_vdot = z3_replacements(V, self.xs, original_point.numpy().T), \
+                                          z3_replacements(Vdot, self.xs, original_point.numpy().T)
+            print('V(ctx) = ', value_in_ctx)
+            print('Vdot(ctx) = ', value_in_ctx)
             C = self.randomise_counterex(original_point)
 
         return found_lyap, C
@@ -101,7 +106,7 @@ class Verifier:
             circle = self.circle_constr(self.eq[idx, :])
             domain_constr += [_And(circle > self.inner ** 2, circle < self.outer ** 2)]
         # _And(*(domain_constr for _ in range(len(domain_constr))))
-        return _And(domain_constr[0], lyap_negated)
+        return _And(_And(domain_constr), lyap_negated)
 
     def circle_constr(self, c):
         """

@@ -254,6 +254,7 @@ def dict_to_array(dict, n):
         array[idx, :] = list(dict[idx].values())
     return array
 
+
 def compute_distance(point, equilibrium):
     """
     :param point: np.array
@@ -303,7 +304,7 @@ def compute_trajectory(net, point, f):
     max_iters = 20
     # fixing possible dimensionality issues
     trajectory = [point]
-    num_vdot_value_old = 0
+    num_vdot_value_old = -1.0
     # gradient computation
     for gradient_loop in range(max_iters):
         # compute gradient of Vdot

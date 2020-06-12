@@ -2,8 +2,7 @@ import torch
 import numpy as np
 import sympy as sp
 from z3 import *
-import dreal as dr
-import timeit
+import logging
 from src.consts import LearnerType, VerifierType
 from src.z3verifier import Z3Verifier
 from src.drealverifier import DRealVerifier
@@ -13,6 +12,10 @@ from src.simplified_z3_learner import SimpleZ3Learner
 from src.net import NN
 from src.scipy_learner import ScipyLearner
 from src.sympy_converter import sympy_converter
+try:
+    import dreal as dr
+except Exception as e:
+    logging.exception('Exception while importing dReal')
 
 
 class Cegis():
@@ -144,7 +147,12 @@ class Cegis():
         Sdot = torch.cat([Sdot, torch.stack(list(map(torch.tensor, map(self.f, ces))))], dim=0)
         return S, Sdot
 
+    # NOTA: using ReLU activations, the gradient is often zero
     def trajectoriser(self, point):
+        """
+        :param point: tensor
+        :return: tensor (points towards max Vdot)
+        """
         point.requires_grad = True
         trajectory = compute_trajectory(self.learner, point, self.f)
 
